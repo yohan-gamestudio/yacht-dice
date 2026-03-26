@@ -36,6 +36,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: ghcr.io/${{ github.repository }}:amd64-${{ github.sha }}
+          provenance: false
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
 
@@ -65,6 +66,7 @@ jobs:
           push: true
           platforms: linux/arm64
           tags: ghcr.io/${{ github.repository }}:arm64-${{ github.sha }}
+          provenance: false
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
 
