@@ -64,7 +64,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [gameState?.currentPlayerIndex, gameState?.currentRound]);
+  }, [gameState?.currentPlayerIndex, gameState?.currentRound, gameState?.dice.rollsLeft]);
 
   // Reset held dice on new turn
   useEffect(() => {

@@ -279,7 +279,7 @@ export function registerHandlers(
     if (!player) return emitError('Player not found');
 
     try {
-      const diceState = room.roll(player.id, heldDiceIndices ?? []);
+      const diceState = room.roll(player.id, heldDiceIndices ?? [], () => setupTurnTimeout(room));
       broadcastState(room);
       socket.emit('dice:result', {
         dice: diceState.values,

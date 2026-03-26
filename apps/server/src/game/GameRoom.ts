@@ -105,7 +105,7 @@ export class GameRoom {
     };
   }
 
-  roll(playerId: string, heldIndices: number[]): DiceState {
+  roll(playerId: string, heldIndices: number[], onTimeout?: () => void): DiceState {
     this.assertPlaying();
     const currentPlayer = this.getCurrentPlayer();
     if (currentPlayer.id !== playerId) {
@@ -113,6 +113,11 @@ export class GameRoom {
     }
     if (this.dice.rollsLeft <= 0) {
       throw new Error('No rolls left');
+    }
+
+    // Reset turn timer on each roll
+    if (onTimeout) {
+      this.startTimer(onTimeout);
     }
 
     const newValues = rollDice(this.dice.values, heldIndices);
