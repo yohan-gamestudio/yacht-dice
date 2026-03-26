@@ -9,3 +9,4 @@ dist
 *.jpg
 .playwright-mcp/
 .omc/
+.claude/settings.local.json
