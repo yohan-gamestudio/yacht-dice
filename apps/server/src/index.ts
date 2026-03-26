@@ -21,6 +21,16 @@ const rooms = new Map<string, GameRoom>();
 // GC: track when all players in a room have disconnected
 const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+function broadcastRoomList() {
+  const roomList = [];
+  for (const room of rooms.values()) {
+    if (room.getPhase() === 'waiting') {
+      roomList.push(room.getRoomListItem());
+    }
+  }
+  io.to('lobby').emit('roomList:update', { rooms: roomList });
+}
+
 function scheduleRoomCleanup(roomId: string) {
   // Cancel any existing timer for this room
   const existing = disconnectTimers.get(roomId);
@@ -32,6 +42,7 @@ function scheduleRoomCleanup(roomId: string) {
       rooms.delete(roomId);
       disconnectTimers.delete(roomId);
       console.log(`[GC] Room ${roomId} cleaned up`);
+      broadcastRoomList();
     }
   }, 60_000);
 

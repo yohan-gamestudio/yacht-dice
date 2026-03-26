@@ -12,6 +12,9 @@ import type {
   GameEndPayload,
   GameStatePayload,
   ErrorPayload,
+  RoomListItem,
+  RoomSettings,
+  LobbyUpdatePayload,
 } from '@yacht-dice/shared';
 import { getSocket } from '@/lib/socket';
 import { calculatePossibleScores } from '@/lib/scoreCalculator';
@@ -21,18 +24,28 @@ interface GameStore {
   nickname: string;
   roomId: string | null;
   gameState: GameState | null;
-  phase: 'home' | 'waiting' | 'playing' | 'finished';
+  phase: 'home' | 'roomList' | 'waiting' | 'playing' | 'finished';
   possibleScores: Record<ScoreCategory, number> | null;
   error: string | null;
+  roomList: RoomListItem[];
+  lobbyPlayers: { id: string; nickname: string }[];
+  isHost: boolean;
+  maxPlayers: number;
+  roomName: string;
+  rankings: GameEndPayload['rankings'] | null;
 
   setNickname: (name: string) => void;
-  createRoom: () => void;
+  createRoom: (settings?: RoomSettings) => void;
   joinRoom: (roomId: string) => void;
   rollDice: (heldIndices: number[]) => void;
   selectScore: (category: ScoreCategory) => void;
   initSocket: () => void;
   resetGame: () => void;
   reconnectToGame: () => boolean;
+  subscribeToRoomList: () => void;
+  unsubscribeFromRoomList: () => void;
+  startGame: () => void;
+  leaveRoom: () => void;
 }
 
 function getOrCreatePlayerId(): string {
@@ -53,16 +66,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
   phase: 'home',
   possibleScores: null,
   error: null,
+  roomList: [],
+  lobbyPlayers: [],
+  isHost: false,
+  maxPlayers: 4,
+  roomName: '',
+  rankings: null,
 
   setNickname: (name) => set({ nickname: name }),
 
-  createRoom: () => {
+  createRoom: (settings) => {
     const { nickname } = get();
     const playerId = getOrCreatePlayerId();
     set({ playerId });
     const socket = getSocket();
     if (!socket.connected) socket.connect();
-    socket.emit('room:join', { nickname, playerId });
+    socket.emit('room:create', {
+      nickname,
+      playerId,
+      roomSettings: settings || { roomName: `${nickname}의 방`, maxPlayers: 4 },
+    });
   },
 
   joinRoom: (roomId) => {
@@ -87,13 +110,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resetGame: () => {
     sessionStorage.removeItem('roomId');
-    // don't remove playerId - keep it for future games
     set({
       roomId: null,
       gameState: null,
       phase: 'home',
       possibleScores: null,
       error: null,
+      lobbyPlayers: [],
+      isHost: false,
+      rankings: null,
     });
   },
 
@@ -107,6 +132,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!socket.connected) socket.connect();
     socket.emit('player:reconnect', { playerId, roomId });
     return true;
+  },
+
+  subscribeToRoomList: () => {
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    socket.emit('roomList:subscribe');
+  },
+
+  unsubscribeFromRoomList: () => {
+    const socket = getSocket();
+    socket.emit('roomList:unsubscribe');
+  },
+
+  startGame: () => {
+    const { roomId } = get();
+    if (!roomId) return;
+    const socket = getSocket();
+    socket.emit('room:start', { roomId });
+  },
+
+  leaveRoom: () => {
+    const { roomId } = get();
+    if (!roomId) return;
+    const socket = getSocket();
+    socket.emit('room:leave', { roomId });
+    sessionStorage.removeItem('roomId');
+    set({
+      roomId: null,
+      gameState: null,
+      phase: 'roomList',
+      lobbyPlayers: [],
+      isHost: false,
+    });
   },
 
   initSocket: () => {
@@ -123,23 +181,52 @@ export const useGameStore = create<GameStore>((set, get) => ({
     socket.off('room:error');
     socket.off('player:disconnected');
     socket.off('player:reconnected');
+    socket.off('roomList:update');
+    socket.off('lobby:update');
 
-    socket.on('room:created', (payload: RoomCreatedPayload & { playerId?: string }) => {
+    socket.on('room:created', (payload: RoomCreatedPayload & { playerId?: string; roomName?: string; maxPlayers?: number }) => {
       if (payload.playerId) {
         sessionStorage.setItem('playerId', payload.playerId);
         set({ playerId: payload.playerId });
       }
       sessionStorage.setItem('roomId', payload.roomId);
-      set({ roomId: payload.roomId, phase: 'waiting' });
+      set({
+        roomId: payload.roomId,
+        phase: 'waiting',
+        roomName: payload.roomName || '',
+        maxPlayers: payload.maxPlayers || 4,
+        isHost: true,
+        lobbyPlayers: [{ id: get().playerId || '', nickname: get().nickname }],
+      });
     });
 
-    socket.on('room:joined', (payload: RoomJoinedPayload & { playerId?: string }) => {
+    socket.on('room:joined', (payload: RoomJoinedPayload & { playerId?: string; roomName?: string; maxPlayers?: number }) => {
       if (payload.playerId) {
         sessionStorage.setItem('playerId', payload.playerId);
         set({ playerId: payload.playerId });
       }
       sessionStorage.setItem('roomId', payload.roomId);
-      set({ roomId: payload.roomId });
+      set({
+        roomId: payload.roomId,
+        phase: 'waiting',
+        roomName: payload.roomName || '',
+        maxPlayers: payload.maxPlayers || 4,
+        isHost: false,
+        lobbyPlayers: payload.players,
+      });
+    });
+
+    socket.on('roomList:update', (payload: { rooms: RoomListItem[] }) => {
+      set({ roomList: payload.rooms });
+    });
+
+    socket.on('lobby:update', (payload: LobbyUpdatePayload) => {
+      const { playerId } = get();
+      set({
+        lobbyPlayers: payload.players,
+        maxPlayers: payload.maxPlayers,
+        isHost: payload.hostPlayerId === playerId,
+      });
     });
 
     socket.on('turn:start', (payload: TurnStartPayload) => {
@@ -150,7 +237,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ...state.gameState,
             currentPlayerIndex: state.gameState.players.findIndex(
               (p) => p?.id === payload.playerId
-            ) as 0 | 1,
+            ),
             currentRound: payload.currentRound,
             turnTimer: payload.timer,
             dice: {
@@ -192,16 +279,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
             upperBonus: payload.upperBonus,
             totalScore: payload.totalScore,
           };
-        }) as GameState['players'];
+        });
         return { gameState: { ...state.gameState, players } };
       });
     });
 
     socket.on('game:end', (payload: GameEndPayload) => {
       set((state) => {
-        if (!state.gameState) return { phase: 'finished' as const };
+        if (!state.gameState) return { phase: 'finished' as const, rankings: payload.rankings };
         return {
           phase: 'finished' as const,
+          rankings: payload.rankings,
           gameState: {
             ...state.gameState,
             phase: 'finished',
@@ -220,11 +308,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const possible = isMyTurn && hasRolled
         ? calculatePossibleScores(Array.from(gs.dice.values))
         : null;
+
+      let phase: GameStore['phase'];
+      if (gs.phase === 'finished') phase = 'finished';
+      else if (gs.phase === 'playing') phase = 'playing';
+      else phase = 'waiting';
+
       set({
         gameState: gs,
         roomId: gs.roomId,
-        phase: gs.phase === 'finished' ? 'finished' : gs.phase === 'playing' ? 'playing' : 'waiting',
+        phase,
         possibleScores: possible,
+        roomName: gs.roomName,
+        maxPlayers: gs.maxPlayers,
+        isHost: gs.hostPlayerId === playerId,
       });
     });
 
@@ -241,7 +338,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!state.gameState) return {};
         const players = state.gameState.players.map((p) =>
           p?.id === payload.playerId ? { ...p, connected: false } : p
-        ) as GameState['players'];
+        );
         return { gameState: { ...state.gameState, players } };
       });
     });
@@ -251,7 +348,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (!state.gameState) return {};
         const players = state.gameState.players.map((p) =>
           p?.id === payload.playerId ? { ...p, connected: true } : p
-        ) as GameState['players'];
+        );
         return { gameState: { ...state.gameState, players } };
       });
     });

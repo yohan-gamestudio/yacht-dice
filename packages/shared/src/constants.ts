@@ -42,7 +42,9 @@ export const TURN_TIMER_SECONDS = 30;
 export const DICE_COUNT = 5;
 
 export const MIN_PLAYERS = 2;
-export const MAX_PLAYERS = 2; // PoC: 2 players only
+export const MAX_PLAYERS = 4;
+export const DEFAULT_MAX_PLAYERS = 4;
+export const ROOM_LIST_REFRESH_INTERVAL = 3000;
 
 export function createEmptyScorecard(): Scorecard {
   return {

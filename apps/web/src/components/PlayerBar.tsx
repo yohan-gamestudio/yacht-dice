@@ -3,14 +3,16 @@
 import type { PlayerState } from '@yacht-dice/shared';
 
 interface PlayerBarProps {
-  players: (PlayerState | undefined)[];
+  players: PlayerState[];
   currentPlayerIndex: number;
   myPlayerId: string | null;
 }
 
 export default function PlayerBar({ players, currentPlayerIndex, myPlayerId }: PlayerBarProps) {
+  const useGrid = players.length > 2;
+
   return (
-    <div className="flex gap-3 w-full">
+    <div className={useGrid ? 'grid grid-cols-2 gap-2 w-full' : 'flex gap-3 w-full'}>
       {players.map((player, i) => {
         if (!player) {
           return (
@@ -40,7 +42,8 @@ export default function PlayerBar({ players, currentPlayerIndex, myPlayerId }: P
               <div className="flex items-center gap-2">
                 <span
                   className={[
-                    'text-sm font-bold truncate max-w-[80px]',
+                    'text-sm font-bold truncate',
+                    useGrid ? 'max-w-[60px]' : 'max-w-[80px]',
                     isCurrentTurn ? 'text-yellow-400' : 'text-gray-300',
                   ].join(' ')}
                 >

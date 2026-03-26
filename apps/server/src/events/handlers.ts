@@ -5,7 +5,10 @@ import {
   type DiceRollPayload,
   type ScoreSelectPayload,
   type GameEndPayload,
+  type RoomSettings,
+  type LobbyUpdatePayload,
   ALL_CATEGORIES,
+  DEFAULT_MAX_PLAYERS,
 } from '@yacht-dice/shared';
 import { GameRoom } from '../game/GameRoom.js';
 import { calculatePossibleScores } from '../game/ScoreCalculator.js';
@@ -22,6 +25,28 @@ export function registerHandlers(
 
   function emitError(msg: string) {
     socket.emit('error', { message: msg });
+  }
+
+  // Helper: broadcast room list to lobby subscribers
+  function broadcastRoomList() {
+    const roomList = [];
+    for (const room of rooms.values()) {
+      if (room.getPhase() === 'waiting') {
+        roomList.push(room.getRoomListItem());
+      }
+    }
+    io.to('lobby').emit('roomList:update', { rooms: roomList });
+  }
+
+  // Helper: broadcast lobby update to room members
+  function broadcastLobbyUpdate(room: GameRoom) {
+    const state = room.getState();
+    const payload: LobbyUpdatePayload = {
+      players: state.players.map(p => ({ id: p.id, nickname: p.nickname })),
+      maxPlayers: state.maxPlayers,
+      hostPlayerId: state.hostPlayerId,
+    };
+    io.to(room.getRoomId()).emit('lobby:update', payload);
   }
 
   // Helper: set up a timeout for a room's current turn
@@ -46,13 +71,7 @@ export function registerHandlers(
           const state = room.getState();
           const payload: GameEndPayload = {
             winner: state.winner,
-            players: (state.players.filter(Boolean) as NonNullable<typeof state.players[0]>[]).map(p => ({
-              id: p.id,
-              nickname: p.nickname,
-              totalScore: p.totalScore,
-              scorecard: p.scorecard,
-              upperBonus: p.upperBonus,
-            })),
+            rankings: room.getRankings(),
           };
           io.to(room.getRoomId()).emit('game:end', payload);
         } else {
@@ -69,6 +88,34 @@ export function registerHandlers(
       }
     });
   }
+
+  // room:create
+  socket.on('room:create', (payload: { nickname: string; playerId?: string; roomSettings?: RoomSettings }) => {
+    const { nickname, playerId, roomSettings } = payload;
+
+    if (!nickname?.trim()) {
+      return emitError('Nickname is required');
+    }
+
+    const newRoomId = uuidv4().slice(0, 8).toUpperCase();
+    const newPlayerId = playerId || uuidv4();
+    const settings = {
+      roomName: roomSettings?.roomName || `${nickname}의 방`,
+      maxPlayers: roomSettings?.maxPlayers || DEFAULT_MAX_PLAYERS,
+    };
+    const room = new GameRoom(newRoomId, { id: newPlayerId, socketId: socket.id, nickname }, settings);
+    rooms.set(newRoomId, room);
+
+    socket.join(newRoomId);
+    socket.emit('room:created', {
+      roomId: newRoomId,
+      playerId: newPlayerId,
+      roomName: settings.roomName,
+      maxPlayers: settings.maxPlayers,
+    });
+
+    broadcastRoomList();
+  });
 
   // room:join
   socket.on('room:join', (payload: RoomJoinPayload) => {
@@ -104,7 +151,7 @@ export function registerHandlers(
       if (state.phase !== 'waiting') {
         return emitError('Game already started');
       }
-      if (state.players.filter(Boolean).length >= 2) {
+      if (state.players.length >= state.maxPlayers) {
         return emitError('Room is full');
       }
 
@@ -121,37 +168,103 @@ export function registerHandlers(
       socket.emit('room:joined', {
         roomId,
         playerId: newPlayerId,
-        players: newState.players.filter(Boolean).map(p => ({ id: p!.id, nickname: p!.nickname })),
+        roomName: newState.roomName,
+        maxPlayers: newState.maxPlayers,
+        players: newState.players.map(p => ({ id: p.id, nickname: p.nickname })),
       });
 
-      // Notify host
-      socket.to(roomId).emit('room:player_joined', {
-        players: newState.players.filter(Boolean).map(p => ({ id: p!.id, nickname: p!.nickname })),
-      });
-
-      // Game starts immediately with 2 players
-      broadcastState(room);
-
-      const currentPlayer = room.getCurrentPlayer();
-      io.to(roomId).emit('turn:start', {
-        playerId: currentPlayer.id,
-        rollsLeft: newState.dice.rollsLeft,
-        timer: 30,
-        currentRound: newState.currentRound,
-      });
-
-      setupTurnTimeout(room);
+      // Broadcast lobby update to all room members
+      broadcastLobbyUpdate(room);
+      broadcastRoomList();
       return;
     }
 
-    // Create new room
+    // Legacy: create room if no roomId (backward compat)
     const newRoomId = uuidv4().slice(0, 8).toUpperCase();
-    const newPlayerId = uuidv4();
-    const room = new GameRoom(newRoomId, { id: newPlayerId, socketId: socket.id, nickname });
+    const newPlayerId2 = uuidv4();
+    const settings = { roomName: `${nickname}의 방`, maxPlayers: DEFAULT_MAX_PLAYERS };
+    const room = new GameRoom(newRoomId, { id: newPlayerId2, socketId: socket.id, nickname }, settings);
     rooms.set(newRoomId, room);
 
     socket.join(newRoomId);
-    socket.emit('room:created', { roomId: newRoomId, playerId: newPlayerId });
+    socket.emit('room:created', { roomId: newRoomId, playerId: newPlayerId2, roomName: settings.roomName, maxPlayers: settings.maxPlayers });
+    broadcastRoomList();
+  });
+
+  // room:start — host starts the game
+  socket.on('room:start', (payload: { roomId: string }) => {
+    const { roomId } = payload;
+    const room = rooms.get(roomId);
+    if (!room) return emitError('Room not found');
+
+    // Only the host can start
+    const player = findPlayerBySocket(room, socket.id);
+    if (!player || player.id !== room.getHostId()) {
+      return emitError('Only the host can start the game');
+    }
+
+    if (!room.canStart()) {
+      return emitError('Need at least 2 players to start');
+    }
+
+    try {
+      room.startGame();
+    } catch (e: unknown) {
+      return emitError(e instanceof Error ? e.message : 'Failed to start');
+    }
+
+    broadcastState(room);
+
+    const currentPlayer = room.getCurrentPlayer();
+    io.to(roomId).emit('turn:start', {
+      playerId: currentPlayer.id,
+      rollsLeft: room.getState().dice.rollsLeft,
+      timer: 30,
+      currentRound: room.getState().currentRound,
+    });
+
+    setupTurnTimeout(room);
+    broadcastRoomList();
+  });
+
+  // room:leave — leave waiting room
+  socket.on('room:leave', (payload: { roomId: string }) => {
+    const { roomId } = payload;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    const player = findPlayerBySocket(room, socket.id);
+    if (!player) return;
+
+    const removed = room.removePlayer(player.id);
+    if (removed) {
+      socket.leave(roomId);
+      const state = room.getState();
+      if (state.players.length === 0) {
+        rooms.delete(roomId);
+      } else {
+        broadcastLobbyUpdate(room);
+      }
+      broadcastRoomList();
+    }
+  });
+
+  // roomList:subscribe
+  socket.on('roomList:subscribe', () => {
+    socket.join('lobby');
+    // Send current room list immediately
+    const roomList = [];
+    for (const room of rooms.values()) {
+      if (room.getPhase() === 'waiting') {
+        roomList.push(room.getRoomListItem());
+      }
+    }
+    socket.emit('roomList:update', { rooms: roomList });
+  });
+
+  // roomList:unsubscribe
+  socket.on('roomList:unsubscribe', () => {
+    socket.leave('lobby');
   });
 
   // dice:roll
@@ -212,13 +325,7 @@ export function registerHandlers(
         const state = room.getState();
         const endPayload: GameEndPayload = {
           winner: state.winner,
-          players: (state.players.filter(Boolean) as NonNullable<typeof state.players[0]>[]).map(p => ({
-            id: p.id,
-            nickname: p.nickname,
-            totalScore: p.totalScore,
-            scorecard: p.scorecard,
-            upperBonus: p.upperBonus,
-          })),
+          rankings: room.getRankings(),
         };
         io.to(room.getRoomId()).emit('game:end', endPayload);
       } else {
@@ -261,8 +368,20 @@ export function registerHandlers(
     for (const room of rooms.values()) {
       const player = findPlayerBySocket(room, socket.id);
       if (player) {
-        room.disconnect(player.id);
-        io.to(room.getRoomId()).emit('player:disconnected', { playerId: player.id });
+        // If in waiting phase, remove player entirely
+        if (room.getPhase() === 'waiting') {
+          room.removePlayer(player.id);
+          const state = room.getState();
+          if (state.players.length === 0) {
+            rooms.delete(room.getRoomId());
+          } else {
+            broadcastLobbyUpdate(room);
+          }
+          broadcastRoomList();
+        } else {
+          room.disconnect(player.id);
+          io.to(room.getRoomId()).emit('player:disconnected', { playerId: player.id });
+        }
         break;
       }
     }

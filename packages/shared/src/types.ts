@@ -39,12 +39,29 @@ export interface PlayerState {
 export interface GameState {
   roomId: string;
   phase: GamePhase;
-  players: [PlayerState, PlayerState?];
-  currentPlayerIndex: 0 | 1;
+  players: PlayerState[];
+  currentPlayerIndex: number;
   currentRound: number;
   dice: DiceState;
   turnTimer: number;
   winner: string | null;
+  maxPlayers: number;
+  roomName: string;
+  hostPlayerId: string;
+}
+
+export interface RoomSettings {
+  roomName: string;
+  maxPlayers: 2 | 3 | 4;
+}
+
+export interface RoomListItem {
+  roomId: string;
+  roomName: string;
+  hostNickname: string;
+  currentPlayerCount: number;
+  maxPlayers: number;
+  phase: GamePhase;
 }
 
 // Socket event payloads
@@ -95,13 +112,24 @@ export interface TurnStartPayload {
 
 export interface GameEndPayload {
   winner: string | null;
-  players: {
+  rankings: {
     id: string;
     nickname: string;
     totalScore: number;
     scorecard: Scorecard;
     upperBonus: boolean;
+    rank: number;
   }[];
+}
+
+export interface RoomListPayload {
+  rooms: RoomListItem[];
+}
+
+export interface LobbyUpdatePayload {
+  players: { id: string; nickname: string }[];
+  maxPlayers: number;
+  hostPlayerId: string;
 }
 
 export interface GameStatePayload {

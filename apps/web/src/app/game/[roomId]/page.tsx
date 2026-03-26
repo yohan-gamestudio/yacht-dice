@@ -17,6 +17,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     gameState,
     phase,
     possibleScores,
+    rankings,
     rollDice,
     selectScore,
     resetGame,
@@ -144,7 +145,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       {/* Turn indicator */}
       <div className="text-center py-1">
         <span className={`text-sm font-semibold ${isMyTurn ? 'text-yellow-400' : 'text-gray-500'}`}>
-          {isMyTurn ? '내 턴' : '상대 턴 - 대기 중...'}
+          {isMyTurn ? '내 턴' : `${gameState.players[gameState.currentPlayerIndex]?.nickname ?? ''} 님의 턴`}
         </span>
       </div>
 
@@ -182,7 +183,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
           }`}
         >
           {!isMyTurn
-            ? '상대 턴'
+            ? `${gameState.players[gameState.currentPlayerIndex]?.nickname ?? ''} 님의 턴`
             : rollsLeft === MAX_ROLLS
             ? '주사위 굴리기'
             : rollsLeft > 0
@@ -208,6 +209,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       {phase === 'finished' && (
         <ResultOverlay
           gameState={gameState}
+          rankings={rankings}
           myPlayerId={playerId}
           onClose={handleGoHome}
         />

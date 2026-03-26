@@ -7,6 +7,7 @@ import {
   type DiceHeld,
   type ScoreCategory,
   type Scorecard,
+  type RoomListItem,
   ALL_CATEGORIES,
   MAX_ROUNDS,
   MAX_ROLLS,
@@ -51,39 +52,52 @@ function makeInitialDiceState(): DiceState {
 
 export class GameRoom {
   private roomId: string;
-  private players: [PlayerState, PlayerState?];
+  private players: PlayerState[] = [];
   private phase: GamePhase = 'waiting';
-  private currentPlayerIndex: 0 | 1 = 0;
+  private currentPlayerIndex: number = 0;
   private currentRound: number = 1;
-  // Track how many categories each player has scored this round
-  // Actually track total scores submitted per player to derive rounds
-  private turnsCompleted: [number, number] = [0, 0];
+  private turnsCompleted: number[] = [];
   private dice: DiceState = makeInitialDiceState();
   private winner: string | null = null;
+  private rankings: { id: string; nickname: string; totalScore: number; scorecard: Scorecard; upperBonus: boolean; rank: number }[] = [];
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private onTimeoutCallback: (() => void) | null = null;
+  private roomName: string;
+  private maxPlayers: number;
+  private hostPlayerId: string;
 
-  constructor(roomId: string, hostPlayer: PlayerInit) {
+  constructor(roomId: string, hostPlayer: PlayerInit, settings: { roomName: string; maxPlayers: number }) {
     this.roomId = roomId;
+    this.roomName = settings.roomName;
+    this.maxPlayers = settings.maxPlayers;
+    this.hostPlayerId = hostPlayer.id;
     this.players = [makePlayerState(hostPlayer)];
+    this.turnsCompleted = [0];
   }
 
   join(player: PlayerInit): void {
-    if (this.players.length >= 2) {
+    if (this.players.length >= this.maxPlayers) {
       throw new Error('Room is full');
     }
     if (this.phase !== 'waiting') {
       throw new Error('Game already started');
     }
-    this.players[1] = makePlayerState(player);
-    this.startGame();
+    this.players.push(makePlayerState(player));
+    this.turnsCompleted.push(0);
   }
 
-  private startGame(): void {
+  canStart(): boolean {
+    return this.phase === 'waiting' && this.players.length >= 2;
+  }
+
+  startGame(): void {
+    if (!this.canStart()) {
+      throw new Error('Cannot start game');
+    }
     this.phase = 'playing';
     this.currentPlayerIndex = 0;
     this.currentRound = 1;
-    this.turnsCompleted = [0, 0];
+    this.turnsCompleted = Array(this.players.length).fill(0);
     this.dice = {
       values: [0, 0, 0, 0, 0] as DiceValues,
       held: [false, false, false, false, false],
@@ -217,29 +231,69 @@ export class GameRoom {
     if (player) player.connected = false;
   }
 
+  removePlayer(playerId: string): boolean {
+    if (this.phase !== 'waiting') return false;
+    const idx = this.players.findIndex(p => p.id === playerId);
+    if (idx === -1) return false;
+    this.players.splice(idx, 1);
+    this.turnsCompleted.splice(idx, 1);
+    // If host left, assign new host
+    if (this.hostPlayerId === playerId && this.players.length > 0) {
+      this.hostPlayerId = this.players[0].id;
+    }
+    return true;
+  }
+
   getState(): GameState {
     return {
       roomId: this.roomId,
       phase: this.phase,
-      players: this.players as [PlayerState, PlayerState?],
+      players: this.players,
       currentPlayerIndex: this.currentPlayerIndex,
       currentRound: this.currentRound,
       dice: this.dice,
       turnTimer: TURN_TIMER_SECONDS,
       winner: this.winner,
+      maxPlayers: this.maxPlayers,
+      roomName: this.roomName,
+      hostPlayerId: this.hostPlayerId,
     };
+  }
+
+  getRoomListItem(): RoomListItem {
+    const host = this.players.find(p => p.id === this.hostPlayerId);
+    return {
+      roomId: this.roomId,
+      roomName: this.roomName,
+      hostNickname: host?.nickname ?? '',
+      currentPlayerCount: this.players.length,
+      maxPlayers: this.maxPlayers,
+      phase: this.phase,
+    };
+  }
+
+  getRankings() {
+    return this.rankings;
   }
 
   isFinished(): boolean {
     return this.phase === 'finished';
   }
 
+  getPhase(): GamePhase {
+    return this.phase;
+  }
+
   areAllDisconnected(): boolean {
-    return this.players.every(p => p && !p.connected);
+    return this.players.every(p => !p.connected);
   }
 
   getRoomId(): string {
     return this.roomId;
+  }
+
+  getHostId(): string {
+    return this.hostPlayerId;
   }
 
   getPlayerById(playerId: string): PlayerState | undefined {
@@ -257,36 +311,48 @@ export class GameRoom {
   }
 
   private advanceTurn(): void {
-    // Switch to other player
-    const nextIndex = this.currentPlayerIndex === 0 ? 1 : 0;
-    this.currentPlayerIndex = nextIndex as 0 | 1;
+    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
 
     // Round = min of turns each player has completed + 1
-    // After both players have played N turns, we're in round N+1
-    const minTurns = Math.min(this.turnsCompleted[0], this.turnsCompleted[1]);
+    const minTurns = Math.min(...this.turnsCompleted);
     this.currentRound = minTurns + 1;
   }
 
   private checkGameOver(): boolean {
-    return (
-      this.turnsCompleted[0] >= MAX_ROUNDS &&
-      this.turnsCompleted[1] >= MAX_ROUNDS
-    );
+    return this.turnsCompleted.every(t => t >= MAX_ROUNDS);
   }
 
   private determineWinner(): void {
-    const p0 = this.players[0];
-    const p1 = this.players[1];
-    if (!p0 || !p1) {
-      this.winner = p0?.id ?? null;
-      return;
+    // Sort players by totalScore descending
+    const sorted = [...this.players]
+      .map(p => ({
+        id: p.id,
+        nickname: p.nickname,
+        totalScore: p.totalScore,
+        scorecard: p.scorecard,
+        upperBonus: p.upperBonus,
+      }))
+      .sort((a, b) => b.totalScore - a.totalScore);
+
+    // Assign ranks (ties get the same rank)
+    this.rankings = [];
+    let currentRank = 1;
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i].totalScore < sorted[i - 1].totalScore) {
+        currentRank = i + 1;
+      }
+      this.rankings.push({ ...sorted[i], rank: currentRank });
     }
-    if (p0.totalScore > p1.totalScore) {
-      this.winner = p0.id;
-    } else if (p1.totalScore > p0.totalScore) {
-      this.winner = p1.id;
-    } else {
-      this.winner = null; // tie
+
+    // Winner is the top ranked player (or null for tie at top)
+    if (this.rankings.length > 0) {
+      const topScore = this.rankings[0].totalScore;
+      const topPlayers = this.rankings.filter(r => r.totalScore === topScore);
+      if (topPlayers.length === 1) {
+        this.winner = topPlayers[0].id;
+      } else {
+        this.winner = null; // tie
+      }
     }
   }
 
