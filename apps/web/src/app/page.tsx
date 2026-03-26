@@ -37,11 +37,11 @@ export default function Home() {
       <div className="w-full max-w-sm space-y-8">
         {/* Title */}
         <div className="text-center space-y-2">
-          <div className="text-6xl">{'\uD83C\uDFB2'}</div>
+          <div className="text-6xl">🎲</div>
           <h1 className="text-4xl font-bold text-yellow-400 tracking-tight">
             YACHT DICE
           </h1>
-          <p className="text-gray-500 text-sm">{'\uBA40\uD2F0\uD50C\uB808\uC774 \uC694\uD2B8 \uB2E4\uC774\uC2A4'}</p>
+          <p className="text-gray-500 text-sm">멀티플레이 요트 다이스</p>
         </div>
 
         {/* Error */}
@@ -55,7 +55,7 @@ export default function Home() {
         <div className="space-y-4">
           <input
             type="text"
-            placeholder={'\uB2C9\uB124\uC784 \uC785\uB825'}
+            placeholder="닉네임 입력"
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
             maxLength={10}
@@ -67,7 +67,7 @@ export default function Home() {
             disabled={!nickname.trim()}
             className="w-full py-3.5 bg-red-500 hover:bg-red-400 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-white font-bold text-lg transition-colors"
           >
-            {'\uAC8C\uC784 \uC2DC\uC791'}
+            게임 시작
           </button>
         </div>
       </div>

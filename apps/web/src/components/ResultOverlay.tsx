@@ -13,10 +13,9 @@ interface ResultOverlayProps {
   onClose: () => void;
 }
 
-const RANK_MEDALS = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49', '4th'];
+const RANK_MEDALS = ['🥇', '🥈', '🥉', '4th'];
 
 export default function ResultOverlay({ gameState, rankings, myPlayerId, onClose }: ResultOverlayProps) {
-  // Use rankings if available, otherwise fall back to sorted players
   const sorted = rankings
     ? rankings
     : [...gameState.players]
@@ -42,18 +41,14 @@ export default function ResultOverlay({ gameState, rankings, myPlayerId, onClose
       >
         <div className="text-center mb-6">
           <div className="text-5xl mb-3">
-            {isTie ? '\uD83E\uDD1D' : isWinner ? '\uD83C\uDFC6' : '\uD83D\uDC80'}
+            {isTie ? '🤝' : isWinner ? '🏆' : '💀'}
           </div>
           <h2 className="text-2xl font-bold text-white">
-            {isTie
-              ? '\uBB34\uC2B9\uBD80!'
-              : isWinner
-              ? '\uC2B9\uB9AC!'
-              : '\uD328\uBC30...'}
+            {isTie ? '무승부!' : isWinner ? '승리!' : '패배...'}
           </h2>
           {myRanking && !isTie && !isWinner && (
             <p className="text-gray-400 mt-1 text-sm">
-              {myRanking.rank}\uC704
+              {myRanking.rank}위
             </p>
           )}
         </div>
@@ -78,9 +73,9 @@ export default function ResultOverlay({ gameState, rankings, myPlayerId, onClose
                   <div>
                     <div className="text-white font-semibold">
                       {p.nickname}
-                      {isMe && <span className="text-gray-400 text-xs ml-1">(\uB098)</span>}
+                      {isMe && <span className="text-gray-400 text-xs ml-1">(나)</span>}
                     </div>
-                    {p.upperBonus && <div className="text-green-400 text-xs">\uBCF4\uB108\uC2A4 +35</div>}
+                    {p.upperBonus && <div className="text-green-400 text-xs">보너스 +35</div>}
                   </div>
                 </div>
                 <div className="text-xl font-bold text-white">{p.totalScore}</div>
@@ -93,7 +88,7 @@ export default function ResultOverlay({ gameState, rankings, myPlayerId, onClose
           onClick={onClose}
           className="w-full py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold text-lg transition-colors"
         >
-          \uD648\uC73C\uB85C
+          홈으로
         </button>
       </motion.div>
     </motion.div>

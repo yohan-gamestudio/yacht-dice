@@ -158,7 +158,7 @@ export default function Scorecard({
               player?.id === myPlayerId ? 'underline' : '',
             ].join(' ')}
           >
-            {player ? (player.id === myPlayerId ? '\uB098' : player.nickname.slice(0, playerCount > 2 ? 3 : 4)) : '\u2014'}
+            {player ? (player.id === myPlayerId ? '나' : player.nickname.slice(0, playerCount > 2 ? 3 : 4)) : '—'}
           </div>
         ))}
       </div>
@@ -181,7 +181,7 @@ export default function Scorecard({
         </div>
         {players.map((player, i) => (
           <div key={i} className="flex items-center justify-center text-xs font-bold text-gray-400">
-            {player ? `${player.upperTotal}/${UPPER_BONUS_THRESHOLD}` : '\u2014'}
+            {player ? `${player.upperTotal}/${UPPER_BONUS_THRESHOLD}` : '—'}
           </div>
         ))}
       </div>
@@ -199,7 +199,7 @@ export default function Scorecard({
               player?.upperBonus ? 'text-green-400' : 'text-gray-600',
             ].join(' ')}
           >
-            {player?.upperBonus ? `+${UPPER_BONUS_SCORE}` : '\u2014'}
+            {player?.upperBonus ? `+${UPPER_BONUS_SCORE}` : '—'}
           </div>
         ))}
       </div>
