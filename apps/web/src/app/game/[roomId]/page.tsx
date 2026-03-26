@@ -189,18 +189,15 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
 
       {/* Scorecard */}
       <div className="flex-1 overflow-y-auto px-4 pb-6">
-        {me && (
-          <Scorecard
-            scorecard={me.scorecard}
-            upperTotal={me.upperTotal}
-            upperBonus={me.upperBonus}
-            totalScore={me.totalScore}
-            possibleScores={isMyTurn ? possibleScores : null}
-            isMyTurn={isMyTurn}
-            hasRolled={hasRolled}
-            onSelectCategory={handleSelectCategory}
-          />
-        )}
+        <Scorecard
+          players={gameState.players}
+          myPlayerId={playerId}
+          currentPlayerIndex={gameState.currentPlayerIndex}
+          possibleScores={isMyTurn ? possibleScores : null}
+          isMyTurn={isMyTurn}
+          hasRolled={hasRolled}
+          onSelectCategory={handleSelectCategory}
+        />
       </div>
 
       {/* Result overlay */}

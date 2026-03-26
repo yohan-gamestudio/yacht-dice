@@ -1,6 +1,6 @@
 'use client';
 
-import type { ScoreCategory, Scorecard as ScorecardType } from '@yacht-dice/shared';
+import type { ScoreCategory, PlayerState } from '@yacht-dice/shared';
 import {
   UPPER_CATEGORIES,
   LOWER_CATEGORIES,
@@ -9,149 +9,209 @@ import {
   UPPER_BONUS_SCORE,
 } from '@yacht-dice/shared';
 
+const DICE_ICONS: Record<ScoreCategory, string> = {
+  aces: '⚀',
+  twos: '⚁',
+  threes: '⚂',
+  fours: '⚃',
+  fives: '⚄',
+  sixes: '⚅',
+  choice: '🎲',
+  fourOfAKind: '⚃⚃',
+  fullHouse: '⚂⚁',
+  smallStraight: '⚀⚁⚂⚃',
+  largeStraight: '⚀⚁⚂⚃⚄',
+  yacht: '⭐',
+};
+
 interface ScorecardProps {
-  scorecard: ScorecardType;
-  upperTotal: number;
-  upperBonus: boolean;
-  totalScore: number;
+  players: (PlayerState | undefined)[];
+  myPlayerId: string | null;
+  currentPlayerIndex: number;
   possibleScores: Record<ScoreCategory, number> | null;
   isMyTurn: boolean;
   hasRolled: boolean;
   onSelectCategory: (category: ScoreCategory) => void;
 }
 
-function CategoryRow({
-  category,
+function ScoreCell({
   score,
   possible,
-  isMyTurn,
-  hasRolled,
-  onSelect,
+  canSelect,
+  isCurrentTurn,
+  isMe,
+  onClick,
 }: {
-  category: ScoreCategory;
   score: number | null;
   possible: number | null;
-  isMyTurn: boolean;
-  hasRolled: boolean;
-  onSelect: (c: ScoreCategory) => void;
+  canSelect: boolean;
+  isCurrentTurn: boolean;
+  isMe: boolean;
+  onClick?: () => void;
 }) {
   const isScored = score !== null;
-  const canSelect = isMyTurn && hasRolled && !isScored;
   const showPossible = canSelect && possible !== null;
 
   return (
     <button
-      onClick={() => canSelect && onSelect(category)}
+      onClick={onClick}
       disabled={!canSelect}
       className={[
-        'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all duration-150',
+        'h-full w-full flex items-center justify-center text-sm font-bold transition-all',
         isScored
-          ? 'bg-gray-800/50 text-gray-500 cursor-default'
+          ? isMe
+            ? 'bg-yellow-400/20 text-yellow-300'
+            : 'bg-gray-700/50 text-gray-400'
           : canSelect
-          ? 'bg-gray-800 hover:bg-blue-900/40 hover:border-blue-500 border border-gray-700 cursor-pointer active:scale-95'
-          : 'bg-gray-800/50 border border-gray-700/50 cursor-default text-gray-400',
+          ? 'bg-yellow-400/10 hover:bg-yellow-400/30 text-yellow-400 cursor-pointer active:scale-90'
+          : isCurrentTurn
+          ? 'bg-gray-800/50 text-gray-600'
+          : 'bg-gray-800/30 text-gray-700',
       ].join(' ')}
     >
-      <span className={isScored ? 'line-through' : ''}>{CATEGORY_LABELS[category]}</span>
-      <span
-        className={[
-          'font-bold min-w-[2rem] text-right',
-          isScored
-            ? 'text-gray-400'
-            : showPossible
-            ? possible > 0
-              ? 'text-blue-400'
-              : 'text-gray-500'
-            : 'text-gray-600',
-        ].join(' ')}
-      >
-        {isScored ? (
-          <span className="flex items-center gap-1">
-            <span className="text-green-500 text-xs">✓</span>
-            {score}
-          </span>
-        ) : showPossible ? (
-          possible
-        ) : (
-          '—'
-        )}
-      </span>
+      {isScored ? score : showPossible ? possible : ''}
     </button>
   );
 }
 
 export default function Scorecard({
-  scorecard,
-  upperTotal,
-  upperBonus,
-  totalScore,
+  players,
+  myPlayerId,
+  currentPlayerIndex,
   possibleScores,
   isMyTurn,
   hasRolled,
   onSelectCategory,
 }: ScorecardProps) {
-  const bonusRemaining = Math.max(0, UPPER_BONUS_THRESHOLD - upperTotal);
+  const p0 = players[0];
+  const p1 = players[1];
+  const myIndex = players.findIndex((p) => p?.id === myPlayerId);
+
+  function renderRow(cat: ScoreCategory) {
+    const canSelect = isMyTurn && hasRolled && p0 && p1;
+
+    return (
+      <div
+        key={cat}
+        className="grid grid-cols-[1fr_72px_72px] border-b border-gray-800/60 h-9"
+      >
+        <div className="flex items-center gap-2 px-3 text-sm">
+          <span className="text-xs opacity-60">{DICE_ICONS[cat]}</span>
+          <span className="text-gray-300">{CATEGORY_LABELS[cat]}</span>
+        </div>
+        {[p0, p1].map((player, i) => {
+          const isMe = player?.id === myPlayerId;
+          const isCurrent = i === currentPlayerIndex;
+          const score = player?.scorecard[cat] ?? null;
+          const canSelectThis = canSelect && isMe && isCurrent && score === null && hasRolled;
+
+          return (
+            <ScoreCell
+              key={i}
+              score={score}
+              possible={canSelectThis ? (possibleScores?.[cat] ?? null) : null}
+              canSelect={!!canSelectThis}
+              isCurrentTurn={isCurrent}
+              isMe={!!isMe}
+              onClick={canSelectThis ? () => onSelectCategory(cat) : undefined}
+            />
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      {/* Upper section */}
-      <div>
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-1">
-          상단 (Upper)
+    <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      {/* Header */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-11 bg-gray-800">
+        <div className="flex items-center px-3">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Categories</span>
         </div>
-        <div className="space-y-1">
-          {UPPER_CATEGORIES.map((cat) => (
-            <CategoryRow
-              key={cat}
-              category={cat}
-              score={scorecard[cat]}
-              possible={possibleScores?.[cat] ?? null}
-              isMyTurn={isMyTurn}
-              hasRolled={hasRolled}
-              onSelect={onSelectCategory}
-            />
-          ))}
-        </div>
-        <div className="mt-2 px-3 py-2 bg-gray-800 rounded-lg flex justify-between text-sm">
-          <span className="text-gray-400">소계</span>
-          <span className="text-white font-semibold">{upperTotal} / {UPPER_BONUS_THRESHOLD}</span>
-        </div>
-        <div className="mt-1 px-3 py-1.5 bg-gray-800 rounded-lg flex justify-between text-sm">
-          <span className="text-gray-400">보너스 +{UPPER_BONUS_SCORE}</span>
-          {upperBonus ? (
-            <span className="text-green-400 font-semibold">획득!</span>
-          ) : (
-            <span className="text-gray-500">
-              {bonusRemaining > 0 ? `${bonusRemaining}점 남음` : '미달'}
-            </span>
-          )}
-        </div>
+        {[p0, p1].map((player, i) => (
+          <div
+            key={i}
+            className={[
+              'flex items-center justify-center text-xs font-bold',
+              i === currentPlayerIndex
+                ? 'bg-yellow-400/20 text-yellow-400'
+                : 'text-gray-500',
+              player?.id === myPlayerId ? 'underline' : '',
+            ].join(' ')}
+          >
+            {player ? (player.id === myPlayerId ? '나' : player.nickname.slice(0, 4)) : '—'}
+          </div>
+        ))}
       </div>
 
-      {/* Lower section */}
-      <div>
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-1">
-          하단 (Lower)
+      {/* Upper section label */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-7 bg-gray-850">
+        <div className="flex items-center px-3">
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Upper</span>
         </div>
-        <div className="space-y-1">
-          {LOWER_CATEGORIES.map((cat) => (
-            <CategoryRow
-              key={cat}
-              category={cat}
-              score={scorecard[cat]}
-              possible={possibleScores?.[cat] ?? null}
-              isMyTurn={isMyTurn}
-              hasRolled={hasRolled}
-              onSelect={onSelectCategory}
-            />
-          ))}
-        </div>
+        <div /><div />
       </div>
 
-      {/* Grand total */}
-      <div className="px-3 py-3 bg-gray-700 rounded-xl flex justify-between">
-        <span className="text-gray-300 font-semibold">총점</span>
-        <span className="text-xl font-bold text-yellow-400">{totalScore}</span>
+      {/* Upper categories */}
+      {UPPER_CATEGORIES.map(renderRow)}
+
+      {/* Subtotal row */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-9 bg-gray-800/80 border-y border-gray-700/50">
+        <div className="flex items-center px-3 text-xs font-semibold text-gray-400">
+          Subtotal
+        </div>
+        {[p0, p1].map((player, i) => (
+          <div key={i} className="flex items-center justify-center text-xs font-bold text-gray-400">
+            {player ? `${player.upperTotal}/${UPPER_BONUS_THRESHOLD}` : '—'}
+          </div>
+        ))}
+      </div>
+
+      {/* Bonus row */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-9 bg-gray-800/60 border-b border-gray-700/50">
+        <div className="flex items-center px-3 text-xs font-semibold text-gray-400">
+          +{UPPER_BONUS_SCORE} Bonus
+        </div>
+        {[p0, p1].map((player, i) => (
+          <div
+            key={i}
+            className={[
+              'flex items-center justify-center text-xs font-bold',
+              player?.upperBonus ? 'text-green-400' : 'text-gray-600',
+            ].join(' ')}
+          >
+            {player?.upperBonus ? `+${UPPER_BONUS_SCORE}` : '—'}
+          </div>
+        ))}
+      </div>
+
+      {/* Lower section label */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-7">
+        <div className="flex items-center px-3">
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Lower</span>
+        </div>
+        <div /><div />
+      </div>
+
+      {/* Lower categories */}
+      {LOWER_CATEGORIES.map(renderRow)}
+
+      {/* Total row */}
+      <div className="grid grid-cols-[1fr_72px_72px] h-12 bg-gray-800 border-t border-gray-700">
+        <div className="flex items-center px-3 text-sm font-bold text-white">
+          Total
+        </div>
+        {[p0, p1].map((player, i) => (
+          <div
+            key={i}
+            className={[
+              'flex items-center justify-center text-lg font-black',
+              player?.id === myPlayerId ? 'text-yellow-400' : 'text-white',
+            ].join(' ')}
+          >
+            {player?.totalScore ?? 0}
+          </div>
+        ))}
       </div>
     </div>
   );
