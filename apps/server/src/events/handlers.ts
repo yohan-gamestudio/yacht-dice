@@ -85,7 +85,7 @@ export function registerHandlers(
         try {
           room.reconnect(playerId, socket.id);
           socket.join(roomId);
-          socket.emit('room:rejoined', { roomId });
+          socket.to(roomId).emit('player:reconnected', { playerId });
           broadcastState(room);
           return;
         } catch {
@@ -245,7 +245,11 @@ export function registerHandlers(
     try {
       room.reconnect(playerId, socket.id);
       socket.join(roomId);
-      socket.emit('room:rejoined', { roomId });
+
+      // Notify the room
+      socket.to(roomId).emit('player:reconnected', { playerId });
+
+      // Send full state to reconnected player
       broadcastState(room);
     } catch (e: unknown) {
       emitError(e instanceof Error ? e.message : 'Reconnect failed');

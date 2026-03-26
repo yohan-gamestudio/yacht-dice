@@ -32,6 +32,7 @@ interface GameStore {
   selectScore: (category: ScoreCategory) => void;
   initSocket: () => void;
   resetGame: () => void;
+  reconnectToGame: () => boolean;
 }
 
 function getOrCreatePlayerId(): string {
@@ -85,6 +86,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   resetGame: () => {
+    sessionStorage.removeItem('roomId');
+    // don't remove playerId - keep it for future games
     set({
       roomId: null,
       gameState: null,
@@ -92,6 +95,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
       possibleScores: null,
       error: null,
     });
+  },
+
+  reconnectToGame: () => {
+    const playerId = sessionStorage.getItem('playerId');
+    const roomId = sessionStorage.getItem('roomId');
+    if (!playerId || !roomId) return false;
+
+    set({ playerId, roomId });
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    socket.emit('player:reconnect', { playerId, roomId });
+    return true;
   },
 
   initSocket: () => {
@@ -114,6 +129,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         sessionStorage.setItem('playerId', payload.playerId);
         set({ playerId: payload.playerId });
       }
+      sessionStorage.setItem('roomId', payload.roomId);
       set({ roomId: payload.roomId, phase: 'waiting' });
     });
 
@@ -122,6 +138,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         sessionStorage.setItem('playerId', payload.playerId);
         set({ playerId: payload.playerId });
       }
+      sessionStorage.setItem('roomId', payload.roomId);
       set({ roomId: payload.roomId });
     });
 
@@ -237,6 +254,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ) as GameState['players'];
         return { gameState: { ...state.gameState, players } };
       });
+    });
+
+    socket.off('connect');
+    socket.on('connect', () => {
+      // On reconnect, re-identify with server
+      const playerId = sessionStorage.getItem('playerId');
+      const roomId = sessionStorage.getItem('roomId');
+      if (playerId && roomId) {
+        socket.emit('player:reconnect', { playerId, roomId });
+      }
     });
   },
 }));

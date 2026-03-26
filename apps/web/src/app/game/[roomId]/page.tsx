@@ -32,10 +32,14 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     initSocket();
   }, []);
 
-  // Redirect if no game state
+  // Try reconnect if no game state
   useEffect(() => {
     if (!gameState && phase === 'home') {
-      router.push('/');
+      const store = useGameStore.getState();
+      const reconnected = store.reconnectToGame();
+      if (!reconnected) {
+        router.push('/');
+      }
     }
   }, [gameState, phase, router]);
 
